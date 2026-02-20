@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Sahil Jhawar
+# SPDX-FileContributor: Sahil Jhawar
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Get authors for files with missing REUSE licenses and save to a JSON file."""
 
 import fnmatch

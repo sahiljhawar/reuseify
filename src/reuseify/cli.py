@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Sahil Jhawar
+# SPDX-FileContributor: Sahil Jhawar
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """reuseify — top-level CLI entry point."""
 
 import typer

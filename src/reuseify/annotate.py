@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Sahil Jhawar
+# SPDX-FileContributor: Sahil Jhawar
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Apply REUSE license headers to files using authors from a JSON file.
 
 All flags not consumed by this script are forwarded verbatim to
