@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reuseify"
-version = "0.1.0"
+version = "0.1.1"
 description = "Automate REUSE license annotation from git history."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -43,7 +43,7 @@ Homepage = "https://github.com/sahiljhawar/reuseify"
 Tracker = "https://github.com/sahiljhawar/reuseify/issues"
 
 [tool.bumpver]
-current_version = "0.1.0"
+current_version = "0.1.1"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 commit_message = "bump version {old_version} -> {new_version}"
 commit = true
