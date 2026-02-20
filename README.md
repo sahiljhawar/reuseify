@@ -9,6 +9,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 # reuseify
+[![PyPi](https://badge.fury.io/py/reuseify.svg)](https://badge.fury.io/py/reuseify)
+[![Python version](https://img.shields.io/pypi/pyversions/reuseify.svg)](https://badge.fury.io/py/reuseify)
 [![REUSE status](https://api.reuse.software/badge/github.com/sahiljhawar/reuseify)](https://api.reuse.software/info/github.com/sahiljhawar/reuseify)
 
 

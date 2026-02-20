@@ -18,6 +18,18 @@ dependencies = [
     "rich>=13.0",
     "reuse>=6.2.0",
 ]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSES/GPL-3.0-or-later.txt"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
+    'Operating System :: POSIX',
+    'Operating System :: Unix',
+    'Operating System :: MacOS',
+]
 
 [project.scripts]
 reuseify = "reuseify.cli:app"
