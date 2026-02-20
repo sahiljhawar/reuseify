@@ -32,9 +32,6 @@ def check_reuse() -> None:
 app = typer.Typer()
 
 
-@app.command(
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
-)
 def main(
     ctx: typer.Context,
     input_file: Annotated[

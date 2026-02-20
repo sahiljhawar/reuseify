@@ -13,7 +13,7 @@ app = typer.Typer(
 )
 
 app.command("get-authors")(_get_authors_cmd)
-app.command("annotate")(_annotate_cmd)
+app.command("annotate", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})(_annotate_cmd)
 
 
 if __name__ == "__main__":
