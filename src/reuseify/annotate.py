@@ -59,6 +59,14 @@ def main(
             ),
         ),
     ] = None,
+    download: Annotated[
+        bool,
+        typer.Option(
+            "--download",
+            "-D",
+            help="Download missing license files.",
+        ),
+    ] = False,
 ) -> None:
     """
     Apply REUSE license headers using authors from a JSON file.
@@ -126,7 +134,8 @@ def main(
     if passed:
         console.print("[bold]Annotated:[/]")
         for filepath in passed:
-            authors = authors_map.get(filepath, _default_contributors)
+            authors = authors_map.get(filepath) or _default_contributors
+            print(authors_map, filepath, _default_contributors, authors)
             console.print(
                 f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]"
             )
@@ -155,6 +164,15 @@ def main(
         console.print(f"[red]Failed:  {len(failed)}[/]")
     else:
         console.print(f"Failed:  {len(failed)}")
+
+    if download:
+        console.print("\n[bold]Downloading missing licenses to LICENSES/...[/]")
+        cmd = ["reuse", "download", "--all"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            console.print(f"[bold red]Error downloading licenses:[/] {result.stderr.strip()}")
+        else:
+            console.print(f"[green]{result.stdout.strip()}[/]")
 
 
 if __name__ == "__main__":
