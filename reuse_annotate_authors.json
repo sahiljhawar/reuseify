@@ -8,6 +8,9 @@
   "pyproject.toml": [
     "Sahil Jhawar"
   ],
+  "reuse_annotate_authors.json": [
+    "Sahil Jhawar"
+  ],
   "src/reuseify/__init__.py": [
     "Sahil Jhawar"
   ],
