@@ -9,6 +9,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 # reuseify
+[![REUSE status](https://api.reuse.software/badge/github.com/sahiljhawar/reuseify)](https://api.reuse.software/info/github.com/sahiljhawar/reuseify)
+
 
 Automate [REUSE](https://reuse.software/) license annotation from git history.
 
