@@ -1,0 +1,23 @@
+{
+  ".gitignore": [
+    "Sahil Jhawar"
+  ],
+  "README.md": [
+    "Sahil Jhawar"
+  ],
+  "pyproject.toml": [
+    "Sahil Jhawar"
+  ],
+  "src/reuseify/__init__.py": [
+    "Sahil Jhawar"
+  ],
+  "src/reuseify/annotate.py": [
+    "Sahil Jhawar"
+  ],
+  "src/reuseify/cli.py": [
+    "Sahil Jhawar"
+  ],
+  "src/reuseify/get_authors.py": [
+    "Sahil Jhawar"
+  ]
+}
