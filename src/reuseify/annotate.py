@@ -135,7 +135,6 @@ def main(
         console.print("[bold]Annotated:[/]")
         for filepath in passed:
             authors = authors_map.get(filepath) or _default_contributors
-            print(authors_map, filepath, _default_contributors, authors)
             console.print(
                 f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]"
             )
