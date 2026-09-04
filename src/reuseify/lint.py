@@ -14,10 +14,11 @@ import typer
 from rich.console import Console
 from rich.text import Text
 
-from .policy import PolicyViolation, check_policy_violations, is_covered_file, load_policy
-from .utils import (
+from reuseify.policy import PolicyViolation, check_policy_violations, is_covered_file, load_policy
+from reuseify.utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     check_git_repo,
+    check_reuse,
     get_files_to_lint,
     get_git_tracked_files,
     is_path_excluded,
@@ -27,6 +28,35 @@ console = Console()
 
 
 app = typer.Typer()
+
+
+def _match_issue_lines(lines: list[str], files: list[str]) -> tuple[list[str], bool, bool]:
+    """Match `reuse lint --lines` output lines to *files* and annotate them.
+
+    Matches by longest-path-first prefix (``line.startswith(path + ":")``)
+    instead of splitting on the first colon, since a file path may itself
+    contain a colon (legal on POSIX).
+
+    Returns (filtered_lines, has_missing_license_text, has_missing_headers).
+    """
+    sorted_paths = sorted(set(files), key=len, reverse=True)
+    filtered_lines: list[str] = []
+    has_missing_license_text = False
+    has_missing_headers = False
+
+    for line in lines:
+        matched = next((p for p in sorted_paths if line.startswith(p + ":")), None)
+        if matched is None:
+            continue
+        if "missing license" in line:
+            line += " (license text file is missing)"
+            has_missing_license_text = True
+        elif "no license identifier" in line or "no copyright notice" in line:
+            line += " (SPDX header is missing)"
+            has_missing_headers = True
+        filtered_lines.append(line)
+
+    return filtered_lines, has_missing_license_text, has_missing_headers
 
 
 @app.command()
@@ -54,6 +84,7 @@ def main(
 ) -> None:
     """Lint files for REUSE license compliance."""
     check_git_repo()
+    check_reuse()
 
     console.print("Running [bold]reuse lint[/]...")
     files, omitted_count = get_files_to_lint(include_not_in_git, exclude)
@@ -74,20 +105,32 @@ def main(
             capture_output=True,
             text=True,
         )
+        # 0 (compliant) can't happen here since `files` is non-empty, but 1
+        # (violations) is the expected outcome; anything else is a genuine
+        # tool failure that must never be mistaken for "no issues".
+        if result.returncode not in (0, 1):
+            console.print(
+                "[bold red]Error:[/] 'reuse lint --lines' failed unexpectedly "
+                f"(exit code {result.returncode})."
+            )
+            if result.stderr.strip():
+                console.print(f"[red]{result.stderr.strip()}[/]")
+            sys.exit(2)
 
-        # Filter lines to only include files in the selected list
-        files_set = set(files)
-        for line in result.stdout.splitlines():
-            if ":" in line:
-                file_path = line.split(":", 1)[0]
-                if file_path in files_set:
-                    if "missing license" in line:
-                        line += " (license text file is missing)"
-                        has_missing_license_text = True
-                    elif "no license identifier" in line or "no copyright notice" in line:
-                        line += " (SPDX header is missing)"
-                        has_missing_headers = True
-                    filtered_lines.append(line)
+        filtered_lines, has_missing_license_text, has_missing_headers = _match_issue_lines(
+            result.stdout.splitlines(), files
+        )
+
+        # `files` (pass 1) said there are issues; if pass 2 couldn't correlate
+        # any of them, that's a format-drift/bug signal, not a clean bill of
+        # health. Refuse to silently report success.
+        if not filtered_lines:
+            console.print(
+                f"[bold red]Error:[/] reuse lint reported {len(files)} file(s) with issues, "
+                "but reuseify could not match them against 'reuse lint --lines' output. "
+                "Refusing to report success; this indicates a reuseify or reuse-version bug."
+            )
+            sys.exit(2)
     else:
         console.print("[green]No files with licensing issues found by reuse lint.[/]")
 

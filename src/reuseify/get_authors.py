@@ -13,9 +13,10 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from .utils import (
+from reuseify.utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     check_git_repo,
+    check_reuse,
     filter_git_ignored,
     get_missing_license_files,
     is_path_excluded,
@@ -68,6 +69,7 @@ def main(
     """Get git authors for files missing REUSE license headers."""
     _exclude: tuple[str, ...] = tuple(exclude or [])
     check_git_repo()
+    check_reuse()
 
     console.print("Running [bold]reuse lint[/]...")
     files = get_missing_license_files()

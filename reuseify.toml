@@ -3,6 +3,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-[environment]
-python-version = "3.11"
-root = ["src", "tests"]
+[default]
+copyright = 'Sahil Jhawar'
+license = 'GPL-3.0-or-later'

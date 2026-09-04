@@ -20,7 +20,6 @@ rule/default does not specify.
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from typing import Annotated
@@ -28,7 +27,8 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from .policy import load_policy, match_rule, resolve_license_and_copyright
+from reuseify.policy import load_policy, match_rule, resolve_license_and_copyright
+from reuseify.utils import check_reuse
 
 console = Console()
 
@@ -47,13 +47,6 @@ def _extract_copyright_license(args: list[str]) -> tuple[str | None, str | None,
     copyright_ = known.copyright[-1] if known.copyright else None
     license_ = known.license[-1] if known.license else None
     return copyright_, license_, remainder
-
-
-def check_reuse() -> None:
-    if not shutil.which("reuse"):
-        console.print("[bold red]Error:[/] 'reuse' command not found. Please install it:")
-        console.print("  pip install reuse")
-        sys.exit(1)
 
 
 app = typer.Typer()

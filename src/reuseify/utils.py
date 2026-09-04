@@ -6,6 +6,7 @@
 """Utility functions for reuseify."""
 
 import fnmatch
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -71,13 +72,15 @@ def filter_git_ignored(files: list[str]) -> list[str]:
     """
     if not files:
         return []
+    # NUL-delimited in and out: bypasses core.quotePath, so filenames with
+    # unicode/special characters round-trip exactly instead of being quoted.
     result = subprocess.run(
-        ["git", "check-ignore", "--stdin"],
-        input="\n".join(files),
+        ["git", "check-ignore", "-z", "--stdin"],
+        input="\0".join(files) + "\0",
         capture_output=True,
         text=True,
     )
-    ignored = set(result.stdout.splitlines())
+    ignored = {f for f in result.stdout.split("\0") if f}
     return [f for f in files if f not in ignored]
 
 
@@ -95,6 +98,14 @@ def check_git_repo() -> None:
         sys.exit(1)
 
 
+def check_reuse() -> None:
+    """Check that the `reuse` CLI is installed. If not, print an error and exit."""
+    if not shutil.which("reuse"):
+        console.print("[bold red]Error:[/] 'reuse' command not found. Please install it:")
+        console.print("  pip install reuse")
+        sys.exit(1)
+
+
 def get_missing_license_files() -> list[str]:
     """Get files in which licenses are missing
 
@@ -109,6 +120,16 @@ def get_missing_license_files() -> list[str]:
         capture_output=True,
         text=True,
     )
+    # `reuse lint` returns 0 (compliant) or 1 (violations found) on a normal
+    # run; anything else means the tool itself failed. Never silently treat
+    # that as "no issues found" — a pre-commit hook must not fail open.
+    if result.returncode not in (0, 1):
+        console.print(
+            f"[bold red]Error:[/] 'reuse lint' failed unexpectedly (exit code {result.returncode})."
+        )
+        if result.stderr.strip():
+            console.print(f"[red]{result.stderr.strip()}[/]")
+        sys.exit(2)
     files: list[str] = []
     for line in (result.stdout + result.stderr).splitlines():
         if line.strip().startswith("# SUMMARY"):
@@ -127,14 +148,16 @@ def get_git_tracked_files() -> list[str]:
     List[str]
         List of file paths tracked by git.
     """
+    # -z: NUL-delimited, bypasses core.quotePath so unicode/special-character
+    # filenames come back exactly as reuse itself would print them.
     result = subprocess.run(
-        ["git", "ls-files"],
+        ["git", "ls-files", "-z"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         return []
-    return result.stdout.strip().splitlines()
+    return [f for f in result.stdout.split("\0") if f]
 
 
 def get_files_to_lint(include_not_in_git: bool, exclude: list[str] | None) -> tuple[list[str], int]:

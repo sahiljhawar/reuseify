@@ -12,6 +12,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 [![PyPi](https://badge.fury.io/py/reuseify.svg)](https://badge.fury.io/py/reuseify)
 [![Python version](https://img.shields.io/pypi/pyversions/reuseify.svg)](https://badge.fury.io/py/reuseify)
 [![REUSE status](https://api.reuse.software/badge/github.com/sahiljhawar/reuseify)](https://api.reuse.software/info/github.com/sahiljhawar/reuseify)
+[![Coverage Status](https://coveralls.io/repos/github/sahiljhawar/reuseify/badge.svg?branch=main)](https://coveralls.io/github/sahiljhawar/reuseify?branch=main)
 
 
 Automate [REUSE](https://reuse.software/) license annotation from git history.
@@ -89,10 +90,11 @@ All unrecognised flags are forwarded verbatim to `reuse annotate`, giving you
 full control over `--copyright`, `--license`, `--year`, `--style`,
 `--fallback-dot-license`, `--force-dot-license`, `--skip-unrecognised`, etc.
 
-| Option                       | Short | Default                       | Description                                              |
-| ---------------------------- | ----- | ----------------------------- | -------------------------------------------------------- |
-| `--input`                    | `-i`  | `reuse_annotate_authors.json` | JSON file from `get-authors`                             |
-| `--default-contributor NAME` | `-d`  | —                             | Fallback contributor for `NOT_IN_GIT` files (repeatable) |
+| Option                       | Short | Default                       | Description                                                        |
+| ---------------------------- | ----- | ----------------------------- | ------------------------------------------------------------------ |
+| `--input`                    | `-i`  | `reuse_annotate_authors.json` | JSON file from `get-authors`                                       |
+| `--default-contributor NAME` | `-d`  | none                          | Fallback contributor for `NOT_IN_GIT` files (repeatable)            |
+| `--download`                 | `-D`  | off                           | Download missing license files (`reuse download --all`) after annotating |
 
 Output is grouped: all successes first, then skips, then failures, then finally a summary.
 
@@ -119,6 +121,26 @@ reuseify annotate \
     --copyright "2025 X-Men" \
     --license MIT
 ```
+
+### Check compliance: lint
+
+```bash
+reuseify lint [OPTIONS]
+```
+
+Runs `reuse lint` to find git-tracked files missing a REUSE header or
+referencing a license whose text isn't in `LICENSES/`. If a `reuseify.toml`
+policy file exists (see below), it also checks that each governed file's
+*actual* declared license and copyright match its assigned rule, not just
+that some valid header is present.
+
+| Option                 | Short | Default | Description                                                            |
+| ----------------------- | ----- | ------- | ------------------------------------------------------------------------ |
+| `--include-not-in-git` | `-i`  | off     | Include files with no git history in the check                          |
+| `--exclude PATTERN`    | `-e`  | none    | Extra glob pattern to exclude (matched per path component, repeatable)  |
+
+Exit codes: `0` compliant, `1` REUSE or policy violations found, `2` an
+underlying `reuse`/reuseify tool failure (never treated as "compliant").
 
 ## reuseify.toml: per-path license policy
 
@@ -174,6 +196,11 @@ reuseify annotate --default-contributor "Charles Xavier"
 Any `--copyright`/`--license` still passed on the command line is used only
 as a fallback, for fields a matched rule or `[default]` leaves unset.
 
+`paths` glob matching uses `fnmatch`, which is case-sensitive on POSIX/macOS
+and case-insensitive on Windows. reuseify only targets POSIX/Unix/macOS
+(see the classifiers in `pyproject.toml`), so write patterns case-exact with
+forward slashes.
+
 ## Pre-commit hook
 
 `reuseify` ships a [pre-commit](https://pre-commit.com) hook that runs `reuseify lint`
@@ -184,7 +211,7 @@ Add this to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/sahiljhawar/reuseify
-    rev: v0.1.2  # use the latest tag
+    rev: 1.0.0  # use the latest tag
     hooks:
       - id: reuseify-lint
 ```
