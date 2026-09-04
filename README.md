@@ -151,19 +151,19 @@ copyright = "Sahil Jhawar"
 license = "GPL-3.0-or-later"
 ```
 
-- **`[[rules]]`** — `paths` is a glob (or list of globs) matched against the
+- **`[[rules]]`**: `paths` is a glob (or list of globs) matched against the
   file's git-relative path. When a file matches more than one rule, the most
   specific one wins: an exact file path beats a directory glob, and among
   glob patterns, the longer one wins.
-- **`[default]`** — used for any tracked file that matches no rule. Files
+- **`[default]`**: used for any tracked file that matches no rule. Files
   matching neither a rule nor `[default]` are not governed by the policy and
   are ignored by both `lint` and `annotate`.
 - Leave the year out of `copyright` (`"Sahil Jhawar"`, not `"2026 Sahil
-  Jhawar"`) — `reuse annotate` always prepends the current year itself, so
+  Jhawar"`): `reuse annotate` always prepends the current year itself, so
   including one produces a duplicated year in the header.
 
 With a `reuseify.toml` in place, `reuseify annotate` no longer requires
-`--copyright`/`--license` on the command line — each file is annotated with
+`--copyright`/`--license` on the command line; each file is annotated with
 its matched rule's values automatically:
 
 ```bash
