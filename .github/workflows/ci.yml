@@ -42,7 +42,7 @@ jobs:
       - name: Install project and ty
         run: |
           uv venv
-          uv pip install . ty -U
+          uv pip install . ty pytest -U
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Run ty
