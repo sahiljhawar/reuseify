@@ -10,8 +10,14 @@ All flags not consumed by this script are forwarded verbatim to
 --fallback-dot-license, --force-dot-license, --skip-unrecognised, ...).
 The --contributor flags are populated automatically from the JSON file
 produced by get_authors.py.
+
+If a reuseify.toml policy file is present, --copyright and --license are
+resolved per file from its path-based rules instead of being required on
+the command line; CLI-supplied values are used as a fallback for fields a
+rule/default does not specify.
 """
 
+import argparse
 import json
 import os
 import shutil
@@ -22,14 +28,30 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from .policy import load_policy, match_rule, resolve_license_and_copyright
+
 console = Console()
+
+
+def _extract_copyright_license(args: list[str]) -> tuple[str | None, str | None, list[str]]:
+    """Pull the last --copyright/--license value out of *args*.
+
+    Returns (copyright, license, remaining_args), where remaining_args has the
+    recognised --copyright/--license flags and their values removed so they can
+    be re-added per file with a resolved value instead of duplicated.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("-c", "--copyright", action="append", default=[])
+    parser.add_argument("-l", "--license", action="append", default=[])
+    known, remainder = parser.parse_known_args(args)
+    copyright_ = known.copyright[-1] if known.copyright else None
+    license_ = known.license[-1] if known.license else None
+    return copyright_, license_, remainder
 
 
 def check_reuse() -> None:
     if not shutil.which("reuse"):
-        console.print(
-            "[bold red]Error:[/] 'reuse' command not found. Please install it:"
-        )
+        console.print("[bold red]Error:[/] 'reuse' command not found. Please install it:")
         console.print("  pip install reuse")
         sys.exit(1)
 
@@ -74,11 +96,25 @@ def main(
     Any additional flags (not part of reuseify) are forwarded directly to `reuse annotate`.
 
     Example:
-        reuseify annotate -i file.json --copyright-holder "John Doe"
+        reuseify annotate -i file.json --copyright "John Doe" --license MIT
     """
     reuse_args: list[str] = ctx.args
     _default_contributors: list[str] = default_contributor or []
     check_reuse()
+
+    policy = load_policy()
+    cli_copyright, cli_license, remainder_args = _extract_copyright_license(reuse_args)
+
+    if policy is None and not (cli_copyright and cli_license):
+        console.print(
+            "[bold red]Error:[/] Both [bold]--copyright[/] and [bold]--license[/] are required."
+        )
+        console.print(
+            "reuse lint requires a copyright notice and a license identifier on every file; "
+            "reuseify's automatic [bold]--contributor[/] alone will not satisfy it. "
+            "Add a reuseify.toml to resolve these per file instead."
+        )
+        sys.exit(1)
 
     try:
         with open(input_file) as f:
@@ -101,9 +137,7 @@ def main(
             if _default_contributors and os.path.isfile(filepath):
                 to_annotate.append((filepath, _default_contributors))
             else:
-                reason = "NOT_IN_GIT" + (
-                    "" if not _default_contributors else " (file not found)"
-                )
+                reason = "NOT_IN_GIT" + ("" if not _default_contributors else " (file not found)")
                 skipped.append((filepath, reason))
         elif not os.path.isfile(filepath):
             skipped.append((filepath, "file not found"))
@@ -111,8 +145,7 @@ def main(
             to_annotate.append((filepath, authors))
 
     console.print(
-        f"Found [bold]{len(to_annotate)}[/] file(s) to annotate, "
-        f"[bold]{len(skipped)}[/] to skip.\n"
+        f"Found [bold]{len(to_annotate)}[/] file(s) to annotate, [bold]{len(skipped)}[/] to skip.\n"
     )
 
     passed: list[str] = []
@@ -123,7 +156,26 @@ def main(
         for author in authors:
             contributor_flags.extend(["--contributor", author])
 
-        cmd = ["reuse", "annotate"] + list(reuse_args) + contributor_flags + [filepath]
+        governed = policy is not None and match_rule(filepath, policy) is not None
+        if governed:
+            copyright_, license_ = resolve_license_and_copyright(
+                filepath, policy, cli_copyright, cli_license
+            )
+            if not (copyright_ and license_):
+                failed.append(
+                    (filepath, "no --copyright/--license resolved from reuseify.toml or CLI flags")
+                )
+                continue
+            cmd = (
+                ["reuse", "annotate"]
+                + remainder_args
+                + ["--copyright", copyright_, "--license", license_]
+                + contributor_flags
+                + [filepath]
+            )
+        else:
+            cmd = ["reuse", "annotate"] + list(reuse_args) + contributor_flags + [filepath]
+
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0:
@@ -135,9 +187,7 @@ def main(
         console.print("[bold]Annotated:[/]")
         for filepath in passed:
             authors = authors_map.get(filepath) or _default_contributors
-            console.print(
-                f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]"
-            )
+            console.print(f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]")
         console.print()
 
     if skipped:

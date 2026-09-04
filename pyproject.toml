@@ -34,6 +34,12 @@ classifiers = [
 [project.scripts]
 reuseify = "reuseify.cli:app"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.16",
+    "ty>=0.0.78",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

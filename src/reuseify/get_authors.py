@@ -5,87 +5,23 @@
 
 """Get authors for files with missing REUSE licenses and save to a JSON file."""
 
-import fnmatch
 import json
 import subprocess
 import sys
-from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
 
-console = Console()
-
-DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
-    "__pycache__",
-    ".venv",
-    "venv",
-    ".env",
-    "env",
-    ".git",
-    ".vscode",
-    ".idea",
-    "*.egg-info",
-    "*.pyc",
-    "dist",
-    "build",
-    "node_modules",
-    ".tox",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
+from .utils import (
+    DEFAULT_EXCLUDE_PATTERNS,
+    check_git_repo,
+    filter_git_ignored,
+    get_missing_license_files,
+    is_path_excluded,
 )
 
-
-def is_path_excluded(filepath: str, patterns: tuple[str, ...]) -> bool:
-    """Return True if any component of *filepath* matches any glob *pattern*."""
-    return any(
-        fnmatch.fnmatch(part, pattern)
-        for part in Path(filepath).parts
-        for pattern in patterns
-    )
-
-
-def filter_git_ignored(files: list[str]) -> list[str]:
-    """Remove files that are ignored by git (.gitignore et al.)."""
-    if not files:
-        return []
-    result = subprocess.run(
-        ["git", "check-ignore", "--stdin"],
-        input="\n".join(files),
-        capture_output=True,
-        text=True,
-    )
-    ignored = set(result.stdout.splitlines())
-    return [f for f in files if f not in ignored]
-
-
-def check_git_repo() -> None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        console.print("[bold red]Error:[/] Not in a git repository.")
-        sys.exit(1)
-
-
-def get_missing_license_files() -> list[str]:
-    result = subprocess.run(
-        ["reuse", "lint"],
-        capture_output=True,
-        text=True,
-    )
-    files: list[str] = []
-    for line in (result.stdout + result.stderr).splitlines():
-        if line.strip().startswith("# SUMMARY"):
-            break
-        stripped = line.strip()
-        if stripped.startswith("* "):
-            files.append(stripped[2:])
-    return files
+console = Console()
 
 
 def get_git_authors(filepath: str) -> list[str]:
@@ -148,9 +84,7 @@ def main(
     files = filter_git_ignored(files)
     excluded_count = before - len(files)
     if excluded_count:
-        console.print(
-            f"[dim]Excluded {excluded_count} file(s) via path patterns / .gitignore.[/]"
-        )
+        console.print(f"[dim]Excluded {excluded_count} file(s) via path patterns / .gitignore.[/]")
     if not files:
         console.print("[green]All remaining files were excluded.[/]")
         sys.exit(0)

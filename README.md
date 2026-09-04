@@ -82,7 +82,9 @@ reuseify annotate [OPTIONS] [REUSE ANNOTATE FLAGS...]
 ```
 
 Reads the JSON file from [Step 1](#step-1-collect-authors) and calls `reuse annotate` for every file.
-`--contributor` flags are injected automatically from the JSON data.
+`--contributor` flags are injected automatically from the JSON data. Both `--copyright` and
+`--license` must still be passed, otherwise the command fails fast, since `reuse lint`
+requires both a copyright notice and a license identifier (contributor alone isn't enough).
 All unrecognised flags are forwarded verbatim to `reuse annotate`, giving you
 full control over `--copyright`, `--license`, `--year`, `--style`,
 `--fallback-dot-license`, `--force-dot-license`, `--skip-unrecognised`, etc.
@@ -116,6 +118,81 @@ reuseify annotate \
     --default-contributor "Cyclops" \
     --copyright "2025 X-Men" \
     --license MIT
+```
+
+## reuseify.toml: per-path license policy
+
+For projects that use more than one license across different directories,
+add a `reuseify.toml` at the project root. It replaces the need to pass
+`--copyright`/`--license` on the command line, and turns `reuseify lint` into
+a stricter check: it verifies each governed file has the *correct* license
+for its path, not just *some* valid license.
+
+```toml
+
+[[rules]]
+paths = ["src/**"]
+copyright = "Sahil Jhawar"
+license = "GPL-3.0-or-later"
+
+[[rules]]
+paths = ["vendor/**", "third_party/**"]
+copyright = "Some Vendor"
+license = "MIT"
+
+# a rule matching an exact file always wins over a directory glob
+[[rules]]
+paths = ["vendor/special_file.py"]
+copyright = "Sahil Jhawar"
+license = "GPL-3.0-or-later"
+
+[default]
+copyright = "Sahil Jhawar"
+license = "GPL-3.0-or-later"
+```
+
+- **`[[rules]]`** — `paths` is a glob (or list of globs) matched against the
+  file's git-relative path. When a file matches more than one rule, the most
+  specific one wins: an exact file path beats a directory glob, and among
+  glob patterns, the longer one wins.
+- **`[default]`** — used for any tracked file that matches no rule. Files
+  matching neither a rule nor `[default]` are not governed by the policy and
+  are ignored by both `lint` and `annotate`.
+- Leave the year out of `copyright` (`"Sahil Jhawar"`, not `"2026 Sahil
+  Jhawar"`) — `reuse annotate` always prepends the current year itself, so
+  including one produces a duplicated year in the header.
+
+With a `reuseify.toml` in place, `reuseify annotate` no longer requires
+`--copyright`/`--license` on the command line — each file is annotated with
+its matched rule's values automatically:
+
+```bash
+reuseify get-authors
+reuseify annotate --default-contributor "Charles Xavier"
+```
+
+Any `--copyright`/`--license` still passed on the command line is used only
+as a fallback, for fields a matched rule or `[default]` leaves unset.
+
+## Pre-commit hook
+
+`reuseify` ships a [pre-commit](https://pre-commit.com) hook that runs `reuseify lint`
+and fails the commit if any git-tracked file is missing a REUSE license header.
+
+Add this to your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/sahiljhawar/reuseify
+    rev: v0.1.2  # use the latest tag
+    hooks:
+      - id: reuseify-lint
+```
+
+Then install it once per clone:
+
+```bash
+pre-commit install
 ```
 
 ## Disclaimer

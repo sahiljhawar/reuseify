@@ -7,8 +7,9 @@
 
 import typer
 
-from reuseify.get_authors import main as _get_authors_cmd
 from reuseify.annotate import main as _annotate_cmd
+from reuseify.get_authors import main as _get_authors_cmd
+from reuseify.lint import main as _lint_cmd
 
 app = typer.Typer(
     name="reuseify",
@@ -18,7 +19,10 @@ app = typer.Typer(
 )
 
 app.command("get-authors")(_get_authors_cmd)
-app.command("annotate", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})(_annotate_cmd)
+app.command(
+    "annotate", context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
+)(_annotate_cmd)
+app.command("lint")(_lint_cmd)
 
 
 if __name__ == "__main__":
