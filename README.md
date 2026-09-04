@@ -211,7 +211,7 @@ Add this to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/sahiljhawar/reuseify
-    rev: 0.1.2  # use the latest tag
+    rev: 1.0.0  # use the latest tag
     hooks:
       - id: reuseify-lint
 ```
