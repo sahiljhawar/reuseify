@@ -38,6 +38,7 @@ dev = [
     "pytest-cov>=5",
     "coverage>=7",
     "coveralls>=4",
+    "pre-commit",
 ]
 
 [tool.pytest.ini_options]
