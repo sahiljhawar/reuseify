@@ -7,6 +7,7 @@
 
 import fnmatch
 import re
+import stat
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -30,11 +31,14 @@ def is_covered_file(filepath: str) -> bool:
     if any(pattern.match(path.name) for pattern in _NON_COVERED_FILE_PATTERNS):
         return False
     try:
-        if path.stat().st_size == 0:
-            return False
+        # lstat, not stat: a symlink (e.g. to a directory) must not be
+        # resolved through to its target before checking it out.
+        stat_result = path.lstat()
     except OSError:
-        pass
-    return True
+        return True
+    if stat.S_ISLNK(stat_result.st_mode):
+        return False
+    return stat_result.st_size != 0
 
 
 @dataclass(frozen=True)

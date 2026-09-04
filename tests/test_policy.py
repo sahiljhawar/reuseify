@@ -126,6 +126,14 @@ def test_is_covered_file_includes_regular_source():
     assert is_covered_file("src/main.py")
 
 
+def test_is_covered_file_excludes_symlinks(git_repo):
+    (git_repo / "target_dir").mkdir()
+    (git_repo / "target_dir" / "file.txt").write_text("content\n")
+    (git_repo / "link_to_dir").symlink_to("target_dir")
+
+    assert not is_covered_file("link_to_dir")
+
+
 def test_check_policy_violations_skips_ungoverned_files(git_repo, commit_files):
     commit_files(git_repo, {"other.py": "x = 1\n"})
     policy = Policy(rules=(Rule(paths=("src/**",), copyright="X", license="MIT"),), default=None)
