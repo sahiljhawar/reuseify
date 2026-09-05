@@ -26,6 +26,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from richpool import JoblibPool
 
 from reuseify.policy import load_policy, match_rule, resolve_license_and_copyright
 from reuseify.utils import check_reuse
@@ -33,7 +34,9 @@ from reuseify.utils import check_reuse
 console = Console()
 
 
-def _extract_copyright_license(args: list[str]) -> tuple[str | None, str | None, list[str]]:
+def _extract_copyright_license(
+    args: list[str],
+) -> tuple[str | None, str | None, list[str]]:
     """Pull the last --copyright/--license value out of *args*.
 
     Returns (copyright, license, remaining_args), where remaining_args has the
@@ -130,7 +133,9 @@ def main(
             if _default_contributors and os.path.isfile(filepath):
                 to_annotate.append((filepath, _default_contributors))
             else:
-                reason = "NOT_IN_GIT" + ("" if not _default_contributors else " (file not found)")
+                reason = "NOT_IN_GIT" + (
+                    "" if not _default_contributors else " (file not found)"
+                )
                 skipped.append((filepath, reason))
         elif not os.path.isfile(filepath):
             skipped.append((filepath, "file not found"))
@@ -144,7 +149,14 @@ def main(
     passed: list[str] = []
     failed: list[tuple[str, str]] = []  # (filepath, stderr)
 
-    for filepath, authors in to_annotate:
+    def _annotate_one(
+        item: tuple[str, list[str]],
+    ) -> tuple[str, str | None]:
+        """Run `reuse annotate` for a single file.
+
+        Returns (filepath, stderr) on failure, or (filepath, None) on success.
+        """
+        filepath, authors = item
         contributor_flags: list[str] = []
         for author in authors:
             contributor_flags.extend(["--contributor", author])
@@ -155,10 +167,10 @@ def main(
                 filepath, policy, cli_copyright, cli_license
             )
             if not (copyright_ and license_):
-                failed.append(
-                    (filepath, "no --copyright/--license resolved from reuseify.toml or CLI flags")
+                return (
+                    filepath,
+                    "no --copyright/--license resolved from reuseify.toml or CLI flags",
                 )
-                continue
             cmd = (
                 ["reuse", "annotate"]
                 + remainder_args
@@ -167,20 +179,35 @@ def main(
                 + [filepath]
             )
         else:
-            cmd = ["reuse", "annotate"] + list(reuse_args) + contributor_flags + [filepath]
+            cmd = (
+                ["reuse", "annotate"]
+                + list(reuse_args)
+                + contributor_flags
+                + [filepath]
+            )
 
         result = subprocess.run(cmd, capture_output=True, text=True)
+        return (filepath, None if result.returncode == 0 else result.stderr.strip())
 
-        if result.returncode == 0:
+    max_workers = min(32, (os.cpu_count() or 4) * 4)
+    pool = JoblibPool(processes=max_workers, backend="threading")
+    results = pool.map(
+        _annotate_one, to_annotate, desc="Annotating", total=len(to_annotate)
+    )
+
+    for filepath, error in results:
+        if error is None:
             passed.append(filepath)
         else:
-            failed.append((filepath, result.stderr.strip()))
+            failed.append((filepath, error))
 
     if passed:
         console.print("[bold]Annotated:[/]")
         for filepath in passed:
             authors = authors_map.get(filepath) or _default_contributors
-            console.print(f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]")
+            console.print(
+                f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]"
+            )
         console.print()
 
     if skipped:
@@ -212,7 +239,9 @@ def main(
         cmd = ["reuse", "download", "--all"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            console.print(f"[bold red]Error downloading licenses:[/] {result.stderr.strip()}")
+            console.print(
+                f"[bold red]Error downloading licenses:[/] {result.stderr.strip()}"
+            )
         else:
             console.print(f"[green]{result.stdout.strip()}[/]")
 
