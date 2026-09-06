@@ -13,18 +13,20 @@ repos:
       - id: check-added-large-files
       - id: check-toml
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
     rev: v0.16.6
     hooks:
-      # Run the linter.
       - id: ruff-check
         args: [--fix]
-      # Run the formatter.
       - id: ruff-format
   - repo: https://github.com/astral-sh/ty-pre-commit
     rev: v0.0.78
     hooks:
       - id: ty
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    # uv version.
+    rev: 0.12.10
+    hooks:
+      - id: uv-lock
   - repo: local
     hooks:
       - id: reuseify-lint
