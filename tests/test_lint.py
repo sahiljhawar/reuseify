@@ -181,6 +181,35 @@ def test_lint_fails_closed_when_reuse_lint_lines_output_does_not_match(
     assert result.exit_code != 0
 
 
+def test_lint_fails_closed_when_reuse_spdx_crashes(
+    git_repo, commit_files, write_license, run_cli, monkeypatch
+):
+    write_license(git_repo, "GPL-3.0-or-later")
+    commit_files(
+        git_repo,
+        {
+            "src/main.py": HEADERED_GPL,
+            "reuseify.toml": (
+                'version = 1\n\n[default]\ncopyright = "Test User"\nlicense = "GPL-3.0-or-later"\n'
+            ),
+        },
+    )
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if "spdx" in cmd:
+            return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="boom")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(lint_module.subprocess, "run", fake_run)
+
+    result = run_cli("lint")
+
+    assert result.exit_code == 2
+    assert "reuse spdx" in result.stdout
+
+
 def test_match_issue_lines_longest_prefix_first():
     lines = [
         "src/main.py: no license identifier",

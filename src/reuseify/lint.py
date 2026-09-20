@@ -143,7 +143,11 @@ def main(
             for f in get_git_tracked_files()
             if not is_path_excluded(f, all_patterns) and is_covered_file(f)
         ]
-        violations = check_policy_violations(tracked, policy)
+        try:
+            violations = check_policy_violations(tracked, policy)
+        except RuntimeError as exc:
+            console.print(f"[bold red]Error:[/] {exc}")
+            sys.exit(2)
 
     for line in filtered_lines:
         text = Text(line, style="red")

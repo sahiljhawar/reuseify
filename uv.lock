@@ -798,12 +798,17 @@ dependencies = [
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/05/35/298d9410b3635107ce586725cdfbca4c219c08d77a3511551f5e479a78db/reuse-6.2.0.tar.gz", hash = "sha256:4feae057a2334c9a513e6933cdb9be819d8b822f3b5b435a36138bd218897d23", size = 1615611, upload-time = "2025-10-27T15:25:46.336Z" }
 
+[package.optional-dependencies]
+charset-normalizer = [
+    { name = "charset-normalizer" },
+]
+
 [[package]]
 name = "reuseify"
 version = "1.0.2"
 source = { editable = "." }
 dependencies = [
-    { name = "reuse" },
+    { name = "reuse", extra = ["charset-normalizer"] },
     { name = "rich" },
     { name = "richpool" },
     { name = "typer" },
@@ -822,7 +827,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "reuse", specifier = ">=6.2.0,<7" },
+    { name = "reuse", extras = ["charset-normalizer"], specifier = ">=6.2.0,<7" },
     { name = "rich", specifier = ">=13.0" },
     { name = "richpool", specifier = ">=0.1.4" },
     { name = "typer", specifier = ">=0.12" },

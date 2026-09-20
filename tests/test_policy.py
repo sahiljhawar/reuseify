@@ -7,6 +7,8 @@
 
 import subprocess
 
+import pytest
+
 import reuseify.policy as policy_module
 from reuseify.policy import (
     Policy,
@@ -201,3 +203,20 @@ def test_get_declared_spdx_info_handles_bare_unwrapped_copyright_value(monkeypat
     info = get_declared_spdx_info()
 
     assert info["weird.py"].copyright == "Some Holder"
+
+
+def test_get_declared_spdx_info_raises_when_reuse_spdx_crashes(monkeypatch):
+    """A crashed `reuse spdx` (e.g. missing encoding-detection backend) must
+    raise, never be silently treated as "no file has any license info" --
+    that would make every tracked file look like a policy violation.
+    """
+
+    def fake_run(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, returncode=1, stdout="", stderr="reuse.exceptions.NoEncodingModuleError: ..."
+        )
+
+    monkeypatch.setattr(policy_module.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="reuse spdx"):
+        get_declared_spdx_info()

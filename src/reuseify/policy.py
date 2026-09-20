@@ -162,8 +162,23 @@ def get_declared_spdx_info() -> dict[str, DeclaredInfo]:
 
     Parses the output of `reuse spdx`, which is a stable, public CLI (unlike
     reuse's internal header-parsing APIs).
+
+    Raises:
+        RuntimeError: If `reuse spdx` exits non-zero. Unlike `reuse lint`, a
+            failing exit code here is never a normal "not compliant" outcome
+            (`reuse spdx` is an unconditional info dump) -- it means the
+            subprocess crashed (e.g. a missing encoding-detection backend). A
+            crash must never be silently treated as "no file has any license
+            info", which would make every tracked file look like a policy
+            violation.
     """
     result = subprocess.run(["reuse", "spdx"], capture_output=True, text=True)
+
+    if result.returncode != 0:
+        msg = f"'reuse spdx' failed unexpectedly (exit code {result.returncode})."
+        if result.stderr.strip():
+            msg += f"\n{result.stderr.strip()}"
+        raise RuntimeError(msg)
 
     info: dict[str, DeclaredInfo] = {}
     current_file: str | None = None
