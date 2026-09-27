@@ -122,7 +122,7 @@ def get_missing_license_files() -> list[str]:
     )
     # `reuse lint` returns 0 (compliant) or 1 (violations found) on a normal
     # run; anything else means the tool itself failed. Never silently treat
-    # that as "no issues found" — a pre-commit hook must not fail open.
+    # that as "no issues found": a pre-commit hook must not fail open.
     if result.returncode not in (0, 1):
         console.print(
             f"[bold red]Error:[/] 'reuse lint' failed unexpectedly (exit code {result.returncode})."

@@ -28,9 +28,31 @@ uv pip install .
 
 ## Usage
 
-The workflow is two steps: collect authors → annotate files.
+`reuseify annotate` and `reuseify lint` both require a
+[`reuseify.toml`](#reuseifytoml-per-path-license-policy) policy file: it is
+the only source of the copyright/license used to annotate and lint files.
+There's no `--copyright`/`--license` CLI flag; if `reuseify.toml` doesn't
+exist yet, running either command creates an empty one and tells you what to
+add to it.
 
-### Step 1: collect authors
+```bash
+cat > reuseify.toml <<'EOF'
+[default]
+copyright = "2025 X-Men"
+license = "MIT"
+EOF
+
+reuseify annotate
+```
+
+When no `reuse_annotate_authors.json` file is present, `annotate` looks up
+authors from git history directly, no separate step needed.
+
+If you want to inspect or hand-edit the author list before annotating (or
+cache it for reuse across runs), use the two-step workflow instead: collect
+authors → annotate files.
+
+### Step 1 (optional): collect authors
 
 ```bash
 reuseify get-authors [OPTIONS]
@@ -82,44 +104,56 @@ reuseify get-authors --exclude reports --exclude "*.tmp"
 reuseify annotate [OPTIONS] [REUSE ANNOTATE FLAGS...]
 ```
 
-Reads the JSON file from [Step 1](#step-1-collect-authors) and calls `reuse annotate` for every file.
-`--contributor` flags are injected automatically from the JSON data. Both `--copyright` and
-`--license` must still be passed, otherwise the command fails fast, since `reuse lint`
-requires both a copyright notice and a license identifier (contributor alone isn't enough).
-All unrecognised flags are forwarded verbatim to `reuse annotate`, giving you
-full control over `--copyright`, `--license`, `--year`, `--style`,
-`--fallback-dot-license`, `--force-dot-license`, `--skip-unrecognised`, etc.
+Requires a [`reuseify.toml`](#reuseifytoml-per-path-license-policy); it's
+created empty if missing (see above). `--copyright`/`--license` are not
+accepted as CLI flags: they're always resolved per file from `reuseify.toml`,
+and a file whose matched rule/`[default]` doesn't specify both just fails with
+a clear message, instead of falling back to a CLI value that could disagree
+with what other files in the project use.
+
+If `--input` (or its default, `reuse_annotate_authors.json`) exists, reads
+authors from that JSON file. Otherwise, looks up authors from git history
+directly, the same lookup [Step 1](#step-1-optional-collect-authors) does, so
+running `get-authors` first is optional. Either way, `--contributor` is
+injected automatically per file, plus any extra names from `--contributor`
+on the command line (see below). All unrecognised flags are forwarded
+verbatim to `reuse annotate`, giving you full control over `--year`,
+`--style`, `--fallback-dot-license`, `--force-dot-license`,
+`--skip-unrecognised`, etc.
 
 | Option                       | Short | Default                       | Description                                                        |
 | ---------------------------- | ----- | ----------------------------- | ------------------------------------------------------------------ |
-| `--input`                    | `-i`  | `reuse_annotate_authors.json` | JSON file from `get-authors`                                       |
-| `--default-contributor NAME` | `-d`  | none                          | Fallback contributor for `NOT_IN_GIT` files (repeatable)            |
-| `--download`                 | `-D`  | off                           | Download missing license files (`reuse download --all`) after annotating |
+| `--input`                    | `-i`  | `reuse_annotate_authors.json` | JSON file from `get-authors`, if present; otherwise authors are read from git history directly |
+| `--contributor NAME`         | `-n`  | none                          | Extra contributor(s) (repeatable). In batch mode, added on top of each file's discovered authors and also covers `NOT_IN_GIT` files. In direct-file mode, the only source of contributors |
+| `--default-contributor NAME` | `-d`  | none                          | Fallback contributor for `NOT_IN_GIT` files (repeatable), used when `--contributor` isn't given |
+| `--download` / `--no-download` | `-D`  | on                          | Download missing license files (`reuse download --all`) after annotating |
 
 Output is grouped: all successes first, then skips, then failures, then finally a summary.
+
+License downloading runs automatically after every annotate; pass
+`--no-download` to skip it. A download failure is printed in red but never
+fails the annotate run itself, since annotating the files is the point of the
+command and a missing `LICENSES/*.txt` is a separate, recoverable problem.
+
+Passing `--input` explicitly with a file that doesn't exist is still treated
+as an error (it fails fast and points you at `get-authors`), since that's
+almost always a typo rather than a request to fall back to git history.
 
 ### Examples
 
 ```bash
-# basic
-reuseify annotate \
-    --copyright "2025 X-Men" \
-    --license Apache-2.0 \
-    --fallback-dot-license
+# basic (copyright/license come from reuseify.toml)
+reuseify annotate --fallback-dot-license
 
 # custom input + fallback contributor for untracked files
 reuseify annotate \
     --input authors.json \
-    --default-contributor "Charles Xavier" \
-    --copyright "2025 X-Men" \
-    --license Apache-2.0
+    --default-contributor "Charles Xavier"
 
 # multiple default contributors
 reuseify annotate \
     --default-contributor "Professor X" \
-    --default-contributor "Cyclops" \
-    --copyright "2025 X-Men" \
-    --license MIT
+    --default-contributor "Cyclops"
 ```
 
 ### Check compliance: lint
@@ -129,10 +163,12 @@ reuseify lint [OPTIONS]
 ```
 
 Runs `reuse lint` to find git-tracked files missing a REUSE header or
-referencing a license whose text isn't in `LICENSES/`. If a `reuseify.toml`
-policy file exists (see below), it also checks that each governed file's
-*actual* declared license and copyright match its assigned rule, not just
-that some valid header is present.
+referencing a license whose text isn't in `LICENSES/`. Requires a
+`reuseify.toml` (see below; created empty if missing) and also checks that
+each governed file's *actual* declared license and copyright match its
+assigned rule, not just that some valid header is present. Files matching no
+rule and no `[default]` are still checked for a REUSE header, just not for a
+*specific* license/copyright.
 
 | Option                 | Short | Default | Description                                                            |
 | ----------------------- | ----- | ------- | ------------------------------------------------------------------------ |
@@ -144,11 +180,12 @@ underlying `reuse`/reuseify tool failure (never treated as "compliant").
 
 ## reuseify.toml: per-path license policy
 
-For projects that use more than one license across different directories,
-add a `reuseify.toml` at the project root. It replaces the need to pass
-`--copyright`/`--license` on the command line, and turns `reuseify lint` into
-a stricter check: it verifies each governed file has the *correct* license
-for its path, not just *some* valid license.
+`reuseify.toml` at the project root is required by `annotate`/`lint`; it's
+the only source of the copyright/license used to annotate and lint files, and
+it also turns `reuseify lint` into a stricter check: it verifies each
+governed file has the *correct* license for its path, not just *some* valid
+license. Projects with a single license across the whole tree just need a
+`[default]`; use `[[rules]]` too for projects with more than one.
 
 ```toml
 
@@ -184,17 +221,29 @@ license = "GPL-3.0-or-later"
   Jhawar"`): `reuse annotate` always prepends the current year itself, so
   including one produces a duplicated year in the header.
 
-With a `reuseify.toml` in place, `reuseify annotate` no longer requires
-`--copyright`/`--license` on the command line; each file is annotated with
-its matched rule's values automatically:
+Each file is annotated with its matched rule's values automatically:
 
 ```bash
 reuseify get-authors
 reuseify annotate --default-contributor "Charles Xavier"
 ```
 
-Any `--copyright`/`--license` still passed on the command line is used only
-as a fallback, for fields a matched rule or `[default]` leaves unset.
+A file whose matched rule leaves a field unset falls through to `[default]`
+for that field; if neither specifies it, that file fails with a clear message
+rather than silently picking up some other value.
+
+### Annotating specific files directly
+
+Pass one or more file paths on the command line to annotate just those files,
+skipping the `reuse lint`/git-history discovery step entirely. There's no
+author auto-detection for files named this way, so use `--contributor`
+(repeatable) to set one; it's optional, same as in `reuse annotate` itself,
+so omitting it just annotates without a `--contributor` line.
+`--copyright`/`--license` still resolve from `reuseify.toml` as above.
+
+```bash
+reuseify annotate --contributor "Sahil Jhawar" src/main.py
+```
 
 `paths` glob matching uses `fnmatch`, which is case-sensitive on POSIX/macOS
 and case-insensitive on Windows. reuseify only targets POSIX/Unix/macOS

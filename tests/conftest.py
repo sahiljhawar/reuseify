@@ -68,6 +68,25 @@ def write_license():
 
 
 @pytest.fixture
+def default_policy():
+    """Write a minimal reuseify.toml [default] into a repo.
+
+    reuseify.toml is required by `annotate`/`lint`; most tests just need one
+    present with values matching whatever headers they write, not to exercise
+    the policy engine itself.
+    """
+
+    def _write(repo: Path, copyright: str = "Test User", license: str = "GPL-3.0-or-later") -> None:
+        (repo / "reuseify.toml").write_text(
+            f"# SPDX-FileCopyrightText: 2026 {copyright}\n"
+            f"# SPDX-License-Identifier: {license}\n\n"
+            f'version = 1\n\n[default]\ncopyright = "{copyright}"\nlicense = "{license}"\n'
+        )
+
+    return _write
+
+
+@pytest.fixture
 def run_cli():
     """Invoke the reuseify Typer app in-process, returning a click Result."""
     runner = CliRunner()

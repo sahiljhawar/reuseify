@@ -18,8 +18,20 @@ import reuseify.lint as lint_module
 from reuseify.lint import _match_issue_lines
 
 
-def test_lint_clean_repo_exits_0(git_repo, commit_files, write_license, run_cli):
+def test_lint_creates_reuseify_toml_when_missing(git_repo, commit_files, run_cli):
+    commit_files(git_repo, {"src/main.py": UNHEADERED})
+
+    result = run_cli("lint")
+
+    assert result.exit_code == 1
+    assert "created an empty one" in result.stdout
+    assert (git_repo / "reuseify.toml").is_file()
+    assert "src/main.py" in result.stdout
+
+
+def test_lint_clean_repo_exits_0(git_repo, commit_files, write_license, default_policy, run_cli):
     write_license(git_repo, "GPL-3.0-or-later")
+    default_policy(git_repo)
     commit_files(git_repo, {"src/main.py": HEADERED_GPL})
 
     result = run_cli("lint")
@@ -28,7 +40,8 @@ def test_lint_clean_repo_exits_0(git_repo, commit_files, write_license, run_cli)
     assert "compliant" in result.stdout
 
 
-def test_lint_missing_license_text_reported(git_repo, commit_files, run_cli):
+def test_lint_missing_license_text_reported(git_repo, commit_files, default_policy, run_cli):
+    default_policy(git_repo)
     commit_files(git_repo, {"src/main.py": HEADERED_GPL})
 
     result = run_cli("lint")
@@ -38,7 +51,8 @@ def test_lint_missing_license_text_reported(git_repo, commit_files, run_cli):
     assert "reuse download --all" in result.stdout
 
 
-def test_lint_include_not_in_git_prints_notice(git_repo, run_cli):
+def test_lint_include_not_in_git_prints_notice(git_repo, default_policy, run_cli):
+    default_policy(git_repo)
     (git_repo / "untracked.py").write_text(UNHEADERED)
 
     result = run_cli("lint", "--include-not-in-git")
@@ -47,7 +61,10 @@ def test_lint_include_not_in_git_prints_notice(git_repo, run_cli):
     assert "Linting non-git-tracked files as well" in result.stdout
 
 
-def test_lint_missing_header_exits_1_and_reports_file(git_repo, commit_files, run_cli):
+def test_lint_missing_header_exits_1_and_reports_file(
+    git_repo, commit_files, default_policy, run_cli
+):
+    default_policy(git_repo)
     commit_files(git_repo, {"src/main.py": UNHEADERED})
 
     result = run_cli("lint")
@@ -121,7 +138,8 @@ def test_lint_ignores_zero_byte_file_under_policy(git_repo, commit_files, write_
     assert result.exit_code == 0
 
 
-def test_lint_colon_in_filename_not_dropped(git_repo, commit_files, run_cli):
+def test_lint_colon_in_filename_not_dropped(git_repo, commit_files, default_policy, run_cli):
+    default_policy(git_repo)
     commit_files(git_repo, {"weird:file.py": UNHEADERED})
 
     result = run_cli("lint")
@@ -130,7 +148,10 @@ def test_lint_colon_in_filename_not_dropped(git_repo, commit_files, run_cli):
     assert "weird:file.py" in result.stdout
 
 
-def test_lint_unicode_filename_not_misclassified_as_not_in_git(git_repo, commit_files, run_cli):
+def test_lint_unicode_filename_not_misclassified_as_not_in_git(
+    git_repo, commit_files, default_policy, run_cli
+):
+    default_policy(git_repo)
     commit_files(git_repo, {"café.py": UNHEADERED})
 
     result = run_cli("lint")
@@ -141,8 +162,9 @@ def test_lint_unicode_filename_not_misclassified_as_not_in_git(git_repo, commit_
 
 
 def test_lint_fails_closed_when_reuse_lint_lines_crashes(
-    git_repo, commit_files, run_cli, monkeypatch
+    git_repo, commit_files, default_policy, run_cli, monkeypatch
 ):
+    default_policy(git_repo)
     commit_files(git_repo, {"src/main.py": UNHEADERED})
 
     real_run = subprocess.run
@@ -161,8 +183,9 @@ def test_lint_fails_closed_when_reuse_lint_lines_crashes(
 
 
 def test_lint_fails_closed_when_reuse_lint_lines_output_does_not_match(
-    git_repo, commit_files, run_cli, monkeypatch
+    git_repo, commit_files, default_policy, run_cli, monkeypatch
 ):
+    default_policy(git_repo)
     commit_files(git_repo, {"src/main.py": UNHEADERED})
 
     real_run = subprocess.run

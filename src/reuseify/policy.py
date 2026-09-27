@@ -13,6 +13,10 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from rich.console import Console
+
+console = Console()
+
 # Files the REUSE spec itself never requires licensing info on: license text
 # sidecars, LICENSE/COPYING files, and REUSE.toml. Mirrors reuse.covered_files.
 _NON_COVERED_FILE_PATTERNS = (
@@ -105,6 +109,28 @@ def load_policy(path: str = "reuseify.toml") -> Policy | None:
     return Policy(rules=rules, default=default)
 
 
+def require_policy(path: str = "reuseify.toml") -> Policy:
+    """Load reuseify.toml, creating an empty one if it's missing.
+
+    reuseify.toml is the only source of the copyright/license used to
+    annotate and lint every file (there's no --copyright/--license flag to
+    fall back to). Rather than hard-failing when it's absent, create a
+    minimal starter file so the command can proceed; every file will still
+    fail to resolve a copyright/license until a [default] or [[rules]]
+    entry is added.
+    """
+    policy = load_policy(path)
+    if policy is None:
+        Path(path).write_text("version = 1\n")
+        console.print(
+            f"[yellow]Note:[/] '{path}' was not found; created an empty one. Add a "
+            r"[bold]\[default][/] (or [bold]\[\[rules]][/]) section with copyright/license "
+            "before this will resolve anything (see README)."
+        )
+        return Policy(rules=(), default=None)
+    return policy
+
+
 def _specificity(pattern: str) -> tuple[int, int]:
     """Score a glob pattern: literal (no wildcard) paths outrank wildcard ones,
     and among the same kind, longer patterns are considered more specific.
@@ -134,26 +160,19 @@ def match_rule(filepath: str, policy: Policy) -> Rule | None:
 
 def resolve_license_and_copyright(
     filepath: str,
-    policy: Policy | None,
-    cli_copyright: str | None,
-    cli_license: str | None,
+    policy: Policy,
 ) -> tuple[str | None, str | None]:
-    """Resolve the (copyright, license) to annotate *filepath* with.
+    """Resolve the (copyright, license) to annotate *filepath* with, from *policy*.
 
     Precedence per field: the matched rule's value, then the policy default's
-    value, then the CLI-supplied fallback value.
+    value. A field left unset by both is returned as None; reuseify.toml is the
+    only source of these values, so there is nothing else to fall back to.
     """
-    rule = match_rule(filepath, policy) if policy else None
-    default = policy.default if policy else None
+    rule = match_rule(filepath, policy)
+    default = policy.default
 
-    copyright_ = (
-        (rule.copyright if rule else None)
-        or (default.copyright if default else None)
-        or cli_copyright
-    )
-    license_ = (
-        (rule.license if rule else None) or (default.license if default else None) or cli_license
-    )
+    copyright_ = (rule.copyright if rule else None) or (default.copyright if default else None)
+    license_ = (rule.license if rule else None) or (default.license if default else None)
     return copyright_, license_
 
 
@@ -166,7 +185,7 @@ def get_declared_spdx_info() -> dict[str, DeclaredInfo]:
     Raises:
         RuntimeError: If `reuse spdx` exits non-zero. Unlike `reuse lint`, a
             failing exit code here is never a normal "not compliant" outcome
-            (`reuse spdx` is an unconditional info dump) -- it means the
+            (`reuse spdx` is an unconditional info dump): it means the
             subprocess crashed (e.g. a missing encoding-detection backend). A
             crash must never be silently treated as "no file has any license
             info", which would make every tracked file look like a policy

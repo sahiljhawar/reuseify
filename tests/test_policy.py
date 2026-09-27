@@ -17,6 +17,7 @@ from reuseify.policy import (
     get_declared_spdx_info,
     is_covered_file,
     match_rule,
+    require_policy,
     resolve_license_and_copyright,
 )
 
@@ -92,28 +93,46 @@ def test_match_rule_returns_none_when_ungoverned():
     assert match_rule("other/file.py", policy) is None
 
 
-def test_resolve_license_and_copyright_precedence_rule_over_default_over_cli():
+def test_resolve_license_and_copyright_precedence_rule_over_default():
     policy = Policy(
         rules=(Rule(paths=("src/**",), copyright=None, license="MIT"),),
         default=Rule(paths=(), copyright="Default Holder", license="GPL-3.0-or-later"),
     )
 
-    copyright_, license_ = resolve_license_and_copyright(
-        "src/main.py", policy, cli_copyright="CLI Holder", cli_license="Apache-2.0"
-    )
+    copyright_, license_ = resolve_license_and_copyright("src/main.py", policy)
 
     # license comes from the matched rule; copyright falls through to default
     assert license_ == "MIT"
     assert copyright_ == "Default Holder"
 
 
-def test_resolve_license_and_copyright_falls_back_to_cli():
-    copyright_, license_ = resolve_license_and_copyright(
-        "anything.py", policy=None, cli_copyright="CLI Holder", cli_license="Apache-2.0"
+def test_resolve_license_and_copyright_none_when_ungoverned():
+    policy = Policy(rules=(Rule(paths=("src/**",), copyright="X", license="MIT"),), default=None)
+
+    copyright_, license_ = resolve_license_and_copyright("other/file.py", policy)
+
+    assert copyright_ is None
+    assert license_ is None
+
+
+def test_require_policy_creates_skeleton_when_missing(git_repo):
+    policy = require_policy()
+
+    assert policy.default is None
+    assert policy.rules == ()
+    assert (git_repo / "reuseify.toml").is_file()
+    assert (git_repo / "reuseify.toml").read_text() == "version = 1\n"
+
+
+def test_require_policy_returns_policy_when_present(git_repo):
+    (git_repo / "reuseify.toml").write_text(
+        'version = 1\n\n[default]\ncopyright = "Test"\nlicense = "MIT"\n'
     )
 
-    assert copyright_ == "CLI Holder"
-    assert license_ == "Apache-2.0"
+    policy = require_policy()
+
+    assert policy.default is not None
+    assert policy.default.copyright == "Test"
 
 
 def test_is_covered_file_excludes_license_sidecar():
@@ -207,7 +226,7 @@ def test_get_declared_spdx_info_handles_bare_unwrapped_copyright_value(monkeypat
 
 def test_get_declared_spdx_info_raises_when_reuse_spdx_crashes(monkeypatch):
     """A crashed `reuse spdx` (e.g. missing encoding-detection backend) must
-    raise, never be silently treated as "no file has any license info" --
+    raise, never be silently treated as "no file has any license info":
     that would make every tracked file look like a policy violation.
     """
 
