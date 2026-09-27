@@ -9,6 +9,7 @@ import fnmatch
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
@@ -106,14 +107,34 @@ def check_reuse() -> None:
         sys.exit(1)
 
 
-def get_missing_license_files() -> list[str]:
-    """Get files in which licenses are missing
+@dataclass(frozen=True)
+class LintScan:
+    """The result of running and parsing `reuse lint`'s plain-text output.
+
+    files: paths named by a "* <filepath>" bullet (missing copyright/license,
+        missing license text, ...), confirmed to exist on disk, so callers
+        can safely treat every entry as a real file.
+    unattributed: bullets from other violation categories (bad/deprecated
+        licenses, invalid SPDX expressions, unused licenses, read errors)
+        that don't resolve to a real file, verbatim as reuse printed them.
+    raw_output: reuse lint's full stdout, for callers that want to show the
+        unattributed violations in context.
+    """
+
+    files: list[str]
+    unattributed: list[str]
+    raw_output: str
+
+
+def get_missing_license_files() -> LintScan:
+    """Get files in which licenses are missing, plus any violations reuseify
+    can't attribute to a specific file.
 
     Returns
     -------
-    List[str]
-        List of files with missing licenses as reported by reuse lint. This include files that
-        are excluded by git or by patterns, so further filtering may be needed.
+    LintScan
+        `files` includes entries excluded by git or by patterns, so further
+        filtering may be needed.
     """
     result = subprocess.run(
         ["reuse", "lint"],
@@ -131,13 +152,28 @@ def get_missing_license_files() -> list[str]:
             console.print(f"[red]{result.stderr.strip()}[/]")
         sys.exit(2)
     files: list[str] = []
+    unattributed: list[str] = []
     for line in (result.stdout + result.stderr).splitlines():
         if line.strip().startswith("# SUMMARY"):
             break
         stripped = line.strip()
         if stripped.startswith("* "):
-            files.append(stripped[2:])
-    return files
+            candidate = stripped[2:]
+            # Bullets under a "* <filepath>" section (missing copyright/
+            # license, missing license text, ...) name a real file. Other
+            # categories (bad/deprecated licenses, invalid SPDX
+            # expressions, unused licenses, read errors) are reported
+            # under a "'<file>' contains ...:" or "not used:" heading whose
+            # own bullets are the offending value, not a path, so they never
+            # resolve to a real file on disk. Telling the two apart this way,
+            # rather than by section header text, means new categories are
+            # still surfaced (as unattributed) instead of silently dropped.
+            if Path(candidate).is_file():
+                files.append(candidate)
+            else:
+                unattributed.append(candidate)
+
+    return LintScan(files=files, unattributed=unattributed, raw_output=result.stdout)
 
 
 def get_git_tracked_files() -> list[str]:
@@ -160,7 +196,9 @@ def get_git_tracked_files() -> list[str]:
     return [f for f in result.stdout.split("\0") if f]
 
 
-def get_files_to_lint(include_not_in_git: bool, exclude: list[str] | None) -> tuple[list[str], int]:
+def get_files_to_lint(
+    include_not_in_git: bool, exclude: list[str] | None
+) -> tuple[list[str], int, LintScan]:
     """Get files to lint based on options, and count of omitted untracked files.
 
     Parameters
@@ -174,15 +212,19 @@ def get_files_to_lint(include_not_in_git: bool, exclude: list[str] | None) -> tu
 
     Returns
     -------
-    Tuple[List[str], int]
+    Tuple[List[str], int, LintScan]
         A tuple containing:
         - List of file paths to lint (with missing licenses, not excluded by patterns, and
             if `include_not_in_git` is False, only those that are tracked by git).
         - Count of files that were omitted because they have no git history (only relevant
             if `include_not_in_git` is False).
+        - The underlying LintScan, so callers can also surface `.unattributed` violations
+            (bad/deprecated licenses, invalid SPDX expressions, unused licenses, read
+            errors) that aren't scoped to a specific file at all.
 
     """
-    missing = get_missing_license_files()
+    scan = get_missing_license_files()
+    missing = scan.files
     all_patterns = DEFAULT_EXCLUDE_PATTERNS + tuple(exclude or [])
     missing = [f for f in missing if not is_path_excluded(f, all_patterns)]
     if not include_not_in_git:
@@ -193,4 +235,4 @@ def get_files_to_lint(include_not_in_git: bool, exclude: list[str] | None) -> tu
         missing = [f for f in missing if f in tracked_set]
     else:
         omitted_count = 0
-    return missing, omitted_count
+    return missing, omitted_count, scan

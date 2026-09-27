@@ -93,7 +93,7 @@ def main(
     policy = require_policy()
 
     console.print("Running [bold]reuse lint[/]...")
-    files, omitted_count = get_files_to_lint(include_not_in_git, exclude)
+    files, omitted_count, scan = get_files_to_lint(include_not_in_git, exclude)
 
     if include_not_in_git and files:
         console.print("[yellow]Linting non-git-tracked files as well.[/]")
@@ -159,6 +159,17 @@ def main(
             text.stylize("bold", match.start(), match.end())
         console.print(text)
 
+    if scan.unattributed:
+        console.print(
+            "\n[bold]Other violations (not tied to a specific file):[/] "
+            "e.g. bad/deprecated licenses, invalid SPDX expressions, unused "
+            "licenses, or read errors. Raw `reuse lint` output:\n"
+        )
+        for output_line in scan.raw_output.splitlines():
+            if output_line.strip().startswith("# SUMMARY"):
+                break
+            console.print(f"[red]{output_line}[/]")
+
     if violations:
         console.print("\n[bold]Policy violations (reuseify.toml):[/]")
         for violation in violations:
@@ -199,7 +210,7 @@ def main(
             "Run [bold]reuseify annotate[/] to bring files back in line with reuseify.toml."
         )
 
-    if filtered_lines or violations:
+    if filtered_lines or violations or scan.unattributed:
         sys.exit(1)
 
     console.print("[green]All selected files are compliant with REUSE.[/]")

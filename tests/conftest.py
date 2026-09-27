@@ -76,12 +76,19 @@ def default_policy():
     the policy engine itself.
     """
 
+    # REUSE-IgnoreStart
+    # The f-string below embeds a literal "SPDX-License-Identifier: ..." tag as
+    # fixture data for temp test repos; without the markers, `reuse` mistakes
+    # the template text itself (with "{license}" unsubstituted) for this file's
+    # own header when linting the reuseify project.
     def _write(repo: Path, copyright: str = "Test User", license: str = "GPL-3.0-or-later") -> None:
         (repo / "reuseify.toml").write_text(
             f"# SPDX-FileCopyrightText: 2026 {copyright}\n"
             f"# SPDX-License-Identifier: {license}\n\n"
             f'version = 1\n\n[default]\ncopyright = "{copyright}"\nlicense = "{license}"\n'
         )
+
+    # REUSE-IgnoreEnd
 
     return _write
 

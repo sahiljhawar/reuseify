@@ -33,6 +33,28 @@ def test_get_missing_license_files_fails_closed_on_reuse_crash(monkeypatch):
     assert exc_info.value.code != 0
 
 
+def test_get_missing_license_files_reports_unattributable_violations(monkeypatch):
+    # `reuse lint` reports real violations (returncode 1), but this category's
+    # bullets are offending values, not "* <filepath>" lines this parses for.
+    fake_stdout = (
+        "# INVALID SPDX LICENSE EXPRESSIONS\n\n"
+        "'tests/conftest.py' contains invalid SPDX License Expressions:\n"
+        "* {license}\n\n"
+        "# SUMMARY\n\n"
+        "* Invalid SPDX License Expressions: 1\n"
+    )
+
+    def fake_run(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout=fake_stdout, stderr="")
+
+    monkeypatch.setattr(utils_module.subprocess, "run", fake_run)
+
+    scan = utils_module.get_missing_license_files()
+
+    assert scan.files == []
+    assert scan.unattributed == ["{license}"]
+
+
 def test_get_git_tracked_files_handles_unicode_without_quoting(git_repo, commit_files):
     commit_files(git_repo, {"café.py": UNHEADERED})
 
@@ -50,7 +72,7 @@ def test_get_files_to_lint_omits_untracked_by_default(git_repo, commit_files):
     commit_files(git_repo, {"tracked.py": UNHEADERED})
     (git_repo / "untracked.py").write_text(UNHEADERED)
 
-    files, omitted = get_files_to_lint(include_not_in_git=False, exclude=None)
+    files, omitted, _scan = get_files_to_lint(include_not_in_git=False, exclude=None)
 
     assert "tracked.py" in files
     assert "untracked.py" not in files
@@ -61,7 +83,7 @@ def test_get_files_to_lint_includes_untracked_with_flag(git_repo, commit_files):
     commit_files(git_repo, {"tracked.py": UNHEADERED})
     (git_repo / "untracked.py").write_text(UNHEADERED)
 
-    files, omitted = get_files_to_lint(include_not_in_git=True, exclude=None)
+    files, omitted, _scan = get_files_to_lint(include_not_in_git=True, exclude=None)
 
     assert "tracked.py" in files
     assert "untracked.py" in files
