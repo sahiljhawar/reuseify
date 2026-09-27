@@ -14,7 +14,12 @@ import typer
 from rich.console import Console
 from rich.text import Text
 
-from reuseify.policy import PolicyViolation, check_policy_violations, is_covered_file, load_policy
+from reuseify.policy import (
+    PolicyViolation,
+    check_policy_violations,
+    is_covered_file,
+    require_policy,
+)
 from reuseify.utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     check_git_repo,
@@ -85,6 +90,7 @@ def main(
     """Lint files for REUSE license compliance."""
     check_git_repo()
     check_reuse()
+    policy = require_policy()
 
     console.print("Running [bold]reuse lint[/]...")
     files, omitted_count = get_files_to_lint(include_not_in_git, exclude)
@@ -134,20 +140,17 @@ def main(
     else:
         console.print("[green]No files with licensing issues found by reuse lint.[/]")
 
-    policy = load_policy()
-    violations: list[PolicyViolation] = []
-    if policy is not None:
-        all_patterns = DEFAULT_EXCLUDE_PATTERNS + tuple(exclude or [])
-        tracked = [
-            f
-            for f in get_git_tracked_files()
-            if not is_path_excluded(f, all_patterns) and is_covered_file(f)
-        ]
-        try:
-            violations = check_policy_violations(tracked, policy)
-        except RuntimeError as exc:
-            console.print(f"[bold red]Error:[/] {exc}")
-            sys.exit(2)
+    all_patterns = DEFAULT_EXCLUDE_PATTERNS + tuple(exclude or [])
+    tracked = [
+        f
+        for f in get_git_tracked_files()
+        if not is_path_excluded(f, all_patterns) and is_covered_file(f)
+    ]
+    try:
+        violations: list[PolicyViolation] = check_policy_violations(tracked, policy)
+    except RuntimeError as exc:
+        console.print(f"[bold red]Error:[/] {exc}")
+        sys.exit(2)
 
     for line in filtered_lines:
         text = Text(line, style="red")

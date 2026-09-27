@@ -36,6 +36,21 @@ def get_git_authors(filepath: str) -> list[str]:
     return sorted(set(result.stdout.strip().splitlines()))
 
 
+def build_authors_map(exclude: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """Compute {filepath: authors} for every file missing a REUSE license header.
+
+    Equivalent to `get-authors --include-not-in-git`: files with no git history
+    are included with an empty author list, so callers can still apply
+    default-contributor/skip logic for them. Lets `annotate` work without a
+    separate `get-authors` run first.
+    """
+    files = get_missing_license_files()
+    all_patterns = DEFAULT_EXCLUDE_PATTERNS + exclude
+    files = [f for f in files if not is_path_excluded(f, all_patterns)]
+    files = filter_git_ignored(files)
+    return {filepath: get_git_authors(filepath) for filepath in files}
+
+
 app = typer.Typer()
 
 

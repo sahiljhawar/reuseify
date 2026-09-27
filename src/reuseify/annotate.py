@@ -3,21 +3,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Apply REUSE license headers to files using authors from a JSON file.
+"""Apply REUSE license headers to files using authors from git or a JSON file.
 
 All flags not consumed by this script are forwarded verbatim to
-`reuse annotate` (e.g. --copyright, --license, --year, --style,
---fallback-dot-license, --force-dot-license, --skip-unrecognised, ...).
-The --contributor flags are populated automatically from the JSON file
-produced by get_authors.py.
+`reuse annotate` (e.g. --year, --style, --fallback-dot-license,
+--force-dot-license, --skip-unrecognised, ...).
 
-If a reuseify.toml policy file is present, --copyright and --license are
-resolved per file from its path-based rules instead of being required on
-the command line; CLI-supplied values are used as a fallback for fields a
-rule/default does not specify.
+A reuseify.toml policy file is required: it is the only source of the
+--copyright/--license used to annotate each file, resolved per file from its
+path-based rules (or [default]). --copyright/--license are not accepted as
+CLI flags here; this keeps a project's licensing consistent regardless of
+what any one invocation happens to pass, which is the whole point of having
+a policy file. See README for reuseify.toml's format.
+
+Contributors always start from git history (per file, whether discovered via
+--input/git-history batch mode, or looked up directly for file path(s) given
+explicitly on the command line). --contributor adds extra name(s) on top of
+that for every file, and also covers files with no git history at all (in
+batch mode, in place of --default-contributor; in direct-file mode, it's then
+the only source of contributors, and can be omitted entirely since it isn't
+required by `reuse annotate` either).
 """
 
-import argparse
 import json
 import os
 import subprocess
@@ -28,28 +35,57 @@ import typer
 from rich.console import Console
 from richpool import JoblibPool
 
-from reuseify.policy import load_policy, match_rule, resolve_license_and_copyright
-from reuseify.utils import check_reuse
+from reuseify.get_authors import build_authors_map, get_git_authors
+from reuseify.policy import require_policy, resolve_license_and_copyright
+from reuseify.utils import check_git_repo, check_reuse
 
 console = Console()
 
+DEFAULT_INPUT_FILE = "reuse_annotate_authors.json"
 
-def _extract_copyright_license(
-    args: list[str],
-) -> tuple[str | None, str | None, list[str]]:
-    """Pull the last --copyright/--license value out of *args*.
 
-    Returns (copyright, license, remaining_args), where remaining_args has the
-    recognised --copyright/--license flags and their values removed so they can
-    be re-added per file with a resolved value instead of duplicated.
+# reuse annotate's own flags that consume a following value (from `reuse
+# annotate --help`).
+_REUSE_VALUE_FLAGS = frozenset(
+    {"-y", "--year", "-s", "--style", "--copyright-prefix", "-t", "--template"}
+)
+
+# Rejected outright in main() rather than handled here: reuseify.toml is now
+# the only source of copyright/license.
+_REJECTED_FLAGS = ("-c", "--copyright", "-l", "--license")
+
+
+def _extract_annotate_args(args: list[str]) -> tuple[list[str], list[str]]:
+    """Split reuseify's own positional file arguments out of *args* (forwarded CLI args).
+
+    Returns (files, remaining_args):
+    - files: positional file paths, for annotating specific files directly instead
+      of discovering them via --input / git history.
+    - remaining_args: everything else, forwarded verbatim to `reuse annotate`.
     """
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("-c", "--copyright", action="append", default=[])
-    parser.add_argument("-l", "--license", action="append", default=[])
-    known, remainder = parser.parse_known_args(args)
-    copyright_ = known.copyright[-1] if known.copyright else None
-    license_ = known.license[-1] if known.license else None
-    return copyright_, license_, remainder
+    files: list[str] = []
+    remainder: list[str] = []
+
+    i = 0
+    while i < len(args):
+        token = args[i]
+        has_value = i + 1 < len(args)
+
+        if token in _REUSE_VALUE_FLAGS:
+            remainder.append(token)
+            if has_value:
+                remainder.append(args[i + 1])
+                i += 2
+            else:
+                i += 1
+        elif token.startswith("-"):
+            remainder.append(token)
+            i += 1
+        else:
+            files.append(token)
+            i += 1
+
+    return files, remainder
 
 
 app = typer.Typer()
@@ -62,85 +98,138 @@ def main(
         typer.Option(
             "--input",
             "-i",
-            help="JSON file produced by get-authors.",
+            help=(
+                "JSON file produced by get-authors. If this is left at its default "
+                "and the file doesn't exist, authors are looked up directly from "
+                "git history instead."
+            ),
             show_default=True,
         ),
-    ] = "reuse_annotate_authors.json",
+    ] = DEFAULT_INPUT_FILE,
+    contributor: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--contributor",
+            "-n",
+            help=(
+                "Extra contributor name(s), can be repeated. Added on top of each file's "
+                "git-history authors (looked up directly for file(s) given on the command "
+                "line, or discovered via --input/git history otherwise), and also covers "
+                "files with no git history at all that would otherwise need "
+                "--default-contributor (or, in direct-file mode, have no --contributor)."
+            ),
+        ),
+    ] = None,
     default_contributor: Annotated[
         list[str] | None,
         typer.Option(
             "--default-contributor",
             "-d",
             help=(
-                "Fallback contributor name(s) for files with no git history (NOT_IN_GIT). "
-                "Can be repeated for multiple names. Without this flag those files are skipped."
+                "Fallback contributor name(s) for files with no git history (NOT_IN_GIT), "
+                "used when --contributor isn't given. Can be repeated. Without either flag "
+                "those files are skipped."
             ),
         ),
     ] = None,
     download: Annotated[
         bool,
         typer.Option(
-            "--download",
+            "--download/--no-download",
             "-D",
-            help="Download missing license files.",
+            help=(
+                "Download missing license files after annotating. On by default; a "
+                "download failure is reported but never fails the annotate run itself."
+            ),
         ),
-    ] = False,
+    ] = True,
 ) -> None:
     """
-    Apply REUSE license headers using authors from a JSON file.
+    Apply REUSE license headers using authors from git history or a JSON file.
+
+    Requires a reuseify.toml: it's the only source of --copyright/--license,
+    resolved per file from its path-based rules (or [default]). --copyright/
+    --license are not accepted as CLI flags.
+
+    With no --input, or when the default input file doesn't exist, authors are
+    looked up directly from git history, same as running `reuseify get-authors`
+    first would produce. Pass --input to reuse a JSON file from a prior
+    get-authors run instead (e.g. one you've hand-edited).
+
+    Passing specific file path(s) directly skips that discovery entirely and
+    annotates just those files, with contributors looked up directly from git
+    history for each one; --contributor adds extra names on top of that (and
+    is the only source of contributors for a file with no git history):
+
+        reuseify annotate --contributor "Sahil Jhawar" src/main.py
 
     Any additional flags (not part of reuseify) are forwarded directly to `reuse annotate`.
-
-    Example:
-        reuseify annotate -i file.json --copyright "John Doe" --license MIT
     """
     reuse_args: list[str] = ctx.args
+    cli_contributors: list[str] = contributor or []
     _default_contributors: list[str] = default_contributor or []
     check_reuse()
 
-    policy = load_policy()
-    cli_copyright, cli_license, remainder_args = _extract_copyright_license(reuse_args)
-
-    if policy is None and not (cli_copyright and cli_license):
+    if any(token in _REJECTED_FLAGS for token in reuse_args):
         console.print(
-            "[bold red]Error:[/] Both [bold]--copyright[/] and [bold]--license[/] are required."
-        )
-        console.print(
-            "reuse lint requires a copyright notice and a license identifier on every file; "
-            "reuseify's automatic [bold]--contributor[/] alone will not satisfy it. "
-            "Add a reuseify.toml to resolve these per file instead."
+            "[bold red]Error:[/] [bold]--copyright[/]/[bold]--license[/] are no longer "
+            "accepted here; configure them in [bold]reuseify.toml[/] instead (see README)."
         )
         sys.exit(1)
 
-    try:
-        with open(input_file) as f:
-            authors_map: dict[str, list[str]] = json.load(f)
-    except FileNotFoundError:
-        console.print(f"[bold red]Error:[/] Input file '{input_file}' not found.")
-        console.print("Run [bold]reuseify get-authors[/] first to generate it.")
-        sys.exit(1)
-    except json.JSONDecodeError as exc:
-        console.print(f"[bold red]Error:[/] Failed to parse '{input_file}': {exc}")
-        sys.exit(1)
-
-    console.print(f"Reading authors from: [bold]{input_file}[/]")
+    policy = require_policy()
+    direct_files, remainder_args = _extract_annotate_args(reuse_args)
 
     to_annotate: list[tuple[str, list[str]]] = []
     skipped: list[tuple[str, str]] = []
 
-    for filepath, authors in authors_map.items():
-        if not authors:
-            if _default_contributors and os.path.isfile(filepath):
-                to_annotate.append((filepath, _default_contributors))
+    if direct_files:
+        check_git_repo()
+        authors_map: dict[str, list[str]] = {}
+        for filepath in direct_files:
+            if not os.path.isfile(filepath):
+                skipped.append((filepath, "file not found"))
+                continue
+            git_authors = get_git_authors(filepath)
+            combined = git_authors + [c for c in cli_contributors if c not in git_authors]
+            authors_map[filepath] = combined
+            to_annotate.append((filepath, combined))
+    else:
+        try:
+            with open(input_file) as f:
+                authors_map = json.load(f)
+            console.print(f"Reading authors from: [bold]{input_file}[/]")
+        except FileNotFoundError:
+            if input_file != DEFAULT_INPUT_FILE:
+                console.print(f"[bold red]Error:[/] Input file '{input_file}' not found.")
+                console.print("Run [bold]reuseify get-authors[/] first to generate it.")
+                sys.exit(1)
+            check_git_repo()
+            console.print(
+                f"[dim]No '{input_file}' found; looking up authors from git history "
+                "directly (run [bold]reuseify get-authors[/] first to cache/edit them "
+                "instead).[/]"
+            )
+            authors_map = build_authors_map()
+        except json.JSONDecodeError as exc:
+            console.print(f"[bold red]Error:[/] Failed to parse '{input_file}': {exc}")
+            sys.exit(1)
+
+        for filepath, authors in authors_map.items():
+            if not authors:
+                fallback = cli_contributors or _default_contributors
+                if fallback and os.path.isfile(filepath):
+                    authors_map[filepath] = fallback
+                    to_annotate.append((filepath, fallback))
+                else:
+                    reason = "NOT_IN_GIT" + ("" if not fallback else " (file not found)")
+                    skipped.append((filepath, reason))
+            elif not os.path.isfile(filepath):
+                skipped.append((filepath, "file not found"))
             else:
-                reason = "NOT_IN_GIT" + (
-                    "" if not _default_contributors else " (file not found)"
-                )
-                skipped.append((filepath, reason))
-        elif not os.path.isfile(filepath):
-            skipped.append((filepath, "file not found"))
-        else:
-            to_annotate.append((filepath, authors))
+                combined = authors + [c for c in cli_contributors if c not in authors]
+                authors_map[filepath] = combined
+                to_annotate.append((filepath, combined))
 
     console.print(
         f"Found [bold]{len(to_annotate)}[/] file(s) to annotate, [bold]{len(skipped)}[/] to skip.\n"
@@ -161,39 +250,30 @@ def main(
         for author in authors:
             contributor_flags.extend(["--contributor", author])
 
-        governed = policy is not None and match_rule(filepath, policy) is not None
-        if governed:
-            copyright_, license_ = resolve_license_and_copyright(
-                filepath, policy, cli_copyright, cli_license
+        copyright_, license_ = resolve_license_and_copyright(filepath, policy)
+        if not (copyright_ and license_):
+            return (
+                filepath,
+                "no --copyright/--license resolved from reuseify.toml "
+                r"(add a matching rule or \[default])",
             )
-            if not (copyright_ and license_):
-                return (
-                    filepath,
-                    "no --copyright/--license resolved from reuseify.toml or CLI flags",
-                )
-            cmd = (
-                ["reuse", "annotate"]
-                + remainder_args
-                + ["--copyright", copyright_, "--license", license_]
-                + contributor_flags
-                + [filepath]
-            )
-        else:
-            cmd = (
-                ["reuse", "annotate"]
-                + list(reuse_args)
-                + contributor_flags
-                + [filepath]
-            )
+
+        copyright_license_flags = ["--copyright", copyright_, "--license", license_]
+
+        cmd = (
+            ["reuse", "annotate"]
+            + remainder_args
+            + copyright_license_flags
+            + contributor_flags
+            + [filepath]
+        )
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         return (filepath, None if result.returncode == 0 else result.stderr.strip())
 
     max_workers = min(32, (os.cpu_count() or 4) * 4)
     pool = JoblibPool(processes=max_workers, backend="threading")
-    results = pool.map(
-        _annotate_one, to_annotate, desc="Annotating", total=len(to_annotate)
-    )
+    results = pool.map(_annotate_one, to_annotate, desc="Annotating", total=len(to_annotate))
 
     for filepath, error in results:
         if error is None:
@@ -205,9 +285,8 @@ def main(
         console.print("[bold]Annotated:[/]")
         for filepath in passed:
             authors = authors_map.get(filepath) or _default_contributors
-            console.print(
-                f"  [bold green]PASS[/]  {filepath}  [dim]({', '.join(authors)})[/]"
-            )
+            suffix = f"  [dim]({', '.join(authors)})[/]" if authors else ""
+            console.print(f"  [bold green]PASS[/]  {filepath}{suffix}")
         console.print()
 
     if skipped:
@@ -236,14 +315,17 @@ def main(
 
     if download:
         console.print("\n[bold]Downloading missing licenses to LICENSES/...[/]")
-        cmd = ["reuse", "download", "--all"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            console.print(
-                f"[bold red]Error downloading licenses:[/] {result.stderr.strip()}"
-            )
+        try:
+            result = subprocess.run(["reuse", "download", "--all"], capture_output=True, text=True)
+        except OSError as exc:
+            console.print(f"[bold red]Error downloading licenses:[/] {exc}")
         else:
-            console.print(f"[green]{result.stdout.strip()}[/]")
+            if result.returncode != 0:
+                # `reuse download` writes its own errors to stdout, not stderr.
+                message = result.stderr.strip() or result.stdout.strip()
+                console.print(f"[bold red]Error downloading licenses:[/] {message}")
+            else:
+                console.print(f"[green]{result.stdout.strip()}[/]")
 
 
 if __name__ == "__main__":
